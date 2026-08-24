@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://midnight-club-card-arcade.jacquesvidja.chatgpt.site'),
   title: 'Midnight Club — Card Arcade',
   description: 'Play Crazy 8, Roulette, and Blackjack in a stylish after-hours card room.',
   openGraph: {
