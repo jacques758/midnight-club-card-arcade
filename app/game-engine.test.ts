@@ -11,6 +11,7 @@ import {
   wheelRotationForResult,
   type Card,
 } from './game-engine';
+import { applyProgressionEvent, createDefaultProgression, getDailyChallenge, levelFromXp, levelProgress, normalizeProgression } from './progression';
 
 const card = (rank: string, suit: Card['suit'] = '♠'): Card => ({ rank, suit });
 
@@ -69,5 +70,40 @@ describe('player statistics', () => {
     const win = recordRound(DEFAULT_STATS, 'win', 25);
     const loss = recordRound(win, 'loss', -25);
     expect(loss).toMatchObject({ rounds: 2, wins: 1, losses: 1, currentStreak: 0, bestStreak: 1, netChips: 0 });
+  });
+});
+
+describe('player progression', () => {
+  const date = '2026-08-24';
+
+  it('calculates levels and progress toward the next level', () => {
+    expect(levelFromXp(0)).toBe(1);
+    expect(levelFromXp(500)).toBe(3);
+    expect(levelProgress(575)).toMatchObject({ current: 75, target: 250, percent: 30 });
+  });
+
+  it('awards more XP for a win than a loss', () => {
+    const start = createDefaultProgression(date);
+    const winStats = recordRound(DEFAULT_STATS, 'win', 25);
+    const lossStats = recordRound(DEFAULT_STATS, 'loss', -25);
+    expect(applyProgressionEvent(start, { game: 'blackjack', outcome: 'win' }, winStats, date).xpEarned).toBeGreaterThan(
+      applyProgressionEvent(start, { game: 'blackjack', outcome: 'loss' }, lossStats, date).xpEarned,
+    );
+  });
+
+  it('unlocks the first-win achievement', () => {
+    const stats = recordRound(DEFAULT_STATS, 'win', 25);
+    const result = applyProgressionEvent(createDefaultProgression(date), { game: 'crazy', outcome: 'win' }, stats, date);
+    expect(result.newlyUnlocked).toContain('first_win');
+    expect(result.state.gameWins.crazy).toBe(1);
+  });
+
+  it('resets an expired daily challenge while preserving lifetime progress', () => {
+    const old = { ...createDefaultProgression('2026-08-23'), xp: 425, unlocked: ['first_win' as const], daily: { date: '2026-08-23', progress: 3, completed: true } };
+    expect(normalizeProgression(old, date)).toMatchObject({ xp: 425, unlocked: ['first_win'], daily: { date, progress: 0, completed: false } });
+  });
+
+  it('selects the same daily challenge for the same date', () => {
+    expect(getDailyChallenge(date)).toEqual(getDailyChallenge(date));
   });
 });

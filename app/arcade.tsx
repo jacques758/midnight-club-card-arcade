@@ -21,13 +21,24 @@ import {
   type Suit,
 } from './game-engine';
 import { useProgressSync } from './progress-sync';
+import {
+  ACHIEVEMENTS,
+  applyProgressionEvent,
+  createDefaultProgression,
+  getDailyChallenge,
+  levelFromXp,
+  levelProgress,
+  normalizeProgression,
+  todayKey,
+  type ProgressionState,
+} from './progression';
 import RulesModal from './rules-modal';
 import { playSound } from './sound';
 
 type BlackjackStatus = 'betting' | 'playing' | 'done';
 type RoulettePending = { result: number; choice: string; wager: number; finishAt: number };
 type ProgressSnapshot = {
-  version: 1;
+  version: 1 | 2;
   activeGame: Game;
   balance: number;
   stats: PlayerStats;
@@ -36,6 +47,7 @@ type ProgressSnapshot = {
   crazy: { deck: Card[]; player: Card[]; computer: Card[]; top: Card | null; suit: Suit; message: string; over: boolean; pendingEight: number | null };
   roulette: { bet: number; choice: string; result: number | null; history: number[]; wheelTurn: number; message: string; pending: RoulettePending | null };
   blackjack: { deck: Card[]; player: Card[]; dealer: Card[]; bet: number; roundBet: number; status: BlackjackStatus; message: string };
+  progression?: ProgressionState;
 };
 const games: { id: Game; name: string; icon: string; note: string }[] = [
   { id: 'crazy', name: 'Crazy 8', icon: '8', note: 'Match suit or rank' },
@@ -48,6 +60,11 @@ export default function Arcade() {
   const [activeGame, setActiveGame] = useState<Game>('blackjack');
   const [balance, setBalance] = useState(1000);
   const [stats, setStats] = useState<PlayerStats>(DEFAULT_STATS);
+  const statsRef = useRef<PlayerStats>(DEFAULT_STATS);
+  const [progression, setProgression] = useState<ProgressionState>(() => createDefaultProgression());
+  const progressionRef = useRef(progression);
+  const [showProgression, setShowProgression] = useState(false);
+  const [progressionNotice, setProgressionNotice] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(0.65);
   const [showRules, setShowRules] = useState(false);
@@ -83,12 +100,20 @@ export default function Arcade() {
   const spinning = roulettePending !== null;
 
   const registerResult = useCallback((outcome: RoundOutcome, netChips = 0) => {
-    setStats((current) => recordRound(current, outcome, netChips));
+    const nextStats = recordRound(statsRef.current, outcome, netChips);
+    statsRef.current = nextStats;
+    setStats(nextStats);
+    const progress = applyProgressionEvent(progressionRef.current, { game: activeGame, outcome }, nextStats);
+    progressionRef.current = progress.state;
+    setProgression(progress.state);
+    const unlocked = progress.newlyUnlocked.map((id) => ACHIEVEMENTS.find((item) => item.id === id)?.title).filter(Boolean);
+    setProgressionNotice(progress.challengeCompleted ? `Daily challenge complete · +${progress.xpEarned} XP` : unlocked.length ? `Achievement unlocked · ${unlocked.join(', ')}` : `+${progress.xpEarned} XP`);
+    window.setTimeout(() => setProgressionNotice(null), 2600);
     setCelebration(outcome);
     if (celebrationTimeoutRef.current) window.clearTimeout(celebrationTimeoutRef.current);
     celebrationTimeoutRef.current = window.setTimeout(() => setCelebration(null), 1800);
     playSound(outcome === 'win' ? 'win' : outcome === 'loss' ? 'loss' : 'push', muted, volume);
-  }, [muted, volume]);
+  }, [activeGame, muted, volume]);
 
   const beginCrazy = useCallback(() => {
     const deck = makeDeck();
@@ -259,10 +284,15 @@ export default function Arcade() {
   const availableBalance = Math.max(0, balance - reservedChips);
   const closeRules = useCallback(() => setShowRules(false), []);
   const restoreProgress = useCallback((progress: ProgressSnapshot) => {
-    if (!progress || progress.version !== 1) return;
+    if (!progress || (progress.version !== 1 && progress.version !== 2)) return;
     setActiveGame(progress.activeGame);
     setBalance(Number.isFinite(progress.balance) ? Math.max(0, progress.balance) : 1000);
-    setStats({ ...DEFAULT_STATS, ...progress.stats });
+    const restoredStats = { ...DEFAULT_STATS, ...progress.stats };
+    statsRef.current = restoredStats;
+    setStats(restoredStats);
+    const restoredProgression = normalizeProgression(progress.progression);
+    progressionRef.current = restoredProgression;
+    setProgression(restoredProgression);
     setMuted(Boolean(progress.muted));
     setVolume(Math.min(1, Math.max(0, Number(progress.volume) || 0.65)));
     if (progress.crazy) {
@@ -282,7 +312,7 @@ export default function Arcade() {
     }
   }, []);
   const progressSnapshot = useMemo<ProgressSnapshot>(() => ({
-    version: 1,
+    version: 2,
     activeGame,
     balance,
     stats,
@@ -291,8 +321,18 @@ export default function Arcade() {
     crazy: { deck: crazyDeck, player: crazyPlayer, computer: crazyComputer, top: crazyTop, suit: crazySuit, message: crazyMessage, over: crazyOver, pendingEight },
     roulette: { bet: rouletteBet, choice: rouletteChoice, result: rouletteResult, history: rouletteHistory, wheelTurn, message: rouletteMessage, pending: roulettePending },
     blackjack: { deck: bjDeck, player: bjPlayer, dealer: bjDealer, bet: bjBet, roundBet: bjRoundBet, status: bjStatus, message: bjMessage },
-  }), [activeGame, balance, bjBet, bjDealer, bjDeck, bjMessage, bjPlayer, bjRoundBet, bjStatus, crazyComputer, crazyDeck, crazyMessage, crazyOver, crazyPlayer, crazySuit, crazyTop, muted, pendingEight, rouletteBet, rouletteChoice, rouletteHistory, rouletteMessage, roulettePending, rouletteResult, stats, volume, wheelTurn]);
+    progression,
+  }), [activeGame, balance, bjBet, bjDealer, bjDeck, bjMessage, bjPlayer, bjRoundBet, bjStatus, crazyComputer, crazyDeck, crazyMessage, crazyOver, crazyPlayer, crazySuit, crazyTop, muted, pendingEight, progression, rouletteBet, rouletteChoice, rouletteHistory, rouletteMessage, roulettePending, rouletteResult, stats, volume, wheelTurn]);
   const { status: progressStatus } = useProgressSync({ snapshot: progressSnapshot, restore: restoreProgress });
+  const dailyChallenge = getDailyChallenge(todayKey());
+  const playerLevel = levelFromXp(progression.xp);
+  const xpProgress = levelProgress(progression.xp);
+
+  function updateProfile(update: Partial<Pick<ProgressionState, 'nickname' | 'avatar'>>) {
+    const next = { ...progressionRef.current, ...update };
+    progressionRef.current = next;
+    setProgression(next);
+  }
 
   return (
     <main className={`arcade-shell game-first game-${activeGame} ${immersive ? 'immersive' : ''} ${celebration ? `celebrate-${celebration}` : ''}`}>
@@ -309,6 +349,23 @@ export default function Arcade() {
         <p>Choose a classic, take your seat, and let the night unfold.</p>
         <div className="hero-suits" aria-hidden="true"><span>♣</span><span>♦</span><span>♥</span><span>♠</span></div>
       </section>
+
+      <section className="progression-bar" aria-label="Player progression">
+        <button type="button" className="player-summary" onClick={() => setShowProgression((visible) => !visible)} aria-expanded={showProgression}>
+          <span className="profile-avatar">{progression.avatar}</span><span><small>LEVEL {playerLevel}</small><strong>{progression.nickname}</strong></span>
+        </button>
+        <div className="xp-summary"><div><span>{xpProgress.current} / {xpProgress.target} XP</span><small>NEXT LEVEL</small></div><div className="xp-track"><span style={{ width: `${xpProgress.percent}%` }}/></div></div>
+        <div className={`daily-summary ${progression.daily.completed ? 'complete' : ''}`}><span>{dailyChallenge.icon}</span><div><small>DAILY CHALLENGE</small><strong>{progression.daily.completed ? 'Completed' : `${progression.daily.progress}/${dailyChallenge.target} · ${dailyChallenge.title}`}</strong></div></div>
+        <button type="button" className="badge-summary" onClick={() => setShowProgression((visible) => !visible)}><span>◆</span><strong>{progression.unlocked.length}/{ACHIEVEMENTS.length}</strong><small>BADGES</small></button>
+      </section>
+
+      {showProgression && <section className="progression-panel" aria-label="Player profile and achievements">
+        <div className="profile-editor"><p className="eyebrow">PLAYER PROFILE</p><label>Nickname<input value={progression.nickname} maxLength={18} onChange={(event) => updateProfile({ nickname: event.target.value.slice(0, 18) })}/></label><div className="avatar-picker" aria-label="Choose a suit avatar">{['♠','♥','♦','♣'].map((avatar) => <button type="button" key={avatar} className={progression.avatar === avatar ? 'active' : ''} onClick={() => updateProfile({ avatar })} aria-pressed={progression.avatar === avatar}>{avatar}</button>)}</div></div>
+        <article className={`daily-card ${progression.daily.completed ? 'complete' : ''}`}><span>{dailyChallenge.icon}</span><div><small>TODAY · +{dailyChallenge.reward} XP</small><h2>{dailyChallenge.title}</h2><p>{dailyChallenge.description}</p><div className="challenge-track"><span style={{width:`${Math.min(100,(progression.daily.progress / dailyChallenge.target) * 100)}%`}}/></div><strong>{progression.daily.completed ? 'REWARD EARNED' : `${progression.daily.progress} OF ${dailyChallenge.target}`}</strong></div></article>
+        <div className="achievement-grid">{ACHIEVEMENTS.map((achievement) => { const earned = progression.unlocked.includes(achievement.id); return <article key={achievement.id} className={earned ? 'earned' : 'locked'}><span>{achievement.icon}</span><div><small>{earned ? 'UNLOCKED' : 'LOCKED'}</small><h3>{achievement.title}</h3><p>{achievement.description}</p></div></article>; })}</div>
+      </section>}
+
+      {progressionNotice && <div className="progression-toast" role="status"><span>✦</span>{progressionNotice}</div>}
 
       <section className="stats-strip" aria-label="Player statistics and sound settings">
         <div className="save-state"><span className={progressStatus}/>{progressStatus === 'loading' ? 'RESTORING' : progressStatus === 'saving' ? 'SAVING' : progressStatus === 'offline' ? 'OFFLINE' : 'PROGRESS SAVED'}</div>
