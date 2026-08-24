@@ -1,10 +1,22 @@
 export type Game = 'crazy' | 'roulette' | 'blackjack';
 export type Suit = '♠' | '♥' | '♦' | '♣';
 export type Card = { suit: Suit; rank: string };
+export type RoundOutcome = 'win' | 'loss' | 'push';
+export type PlayerStats = {
+  rounds: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  biggestWin: number;
+  netChips: number;
+  currentStreak: number;
+  bestStreak: number;
+};
 
 export const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 export const RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+export const DEFAULT_STATS: PlayerStats = { rounds: 0, wins: 0, losses: 0, pushes: 0, biggestWin: 0, netChips: 0, currentStreak: 0, bestStreak: 0 };
 
 export function makeDeck(random: () => number = Math.random): Card[] {
   const deck = SUITS.flatMap((suit) => RANKS.map((rank) => ({ suit, rank })));
@@ -40,6 +52,20 @@ export function blackjackNetChange(outcome: 'blackjack' | 'win' | 'push' | 'loss
   if (outcome === 'win') return wager;
   if (outcome === 'loss') return -wager;
   return 0;
+}
+
+export function recordRound(stats: PlayerStats, outcome: RoundOutcome, netChips = 0): PlayerStats {
+  const currentStreak = outcome === 'win' ? stats.currentStreak + 1 : 0;
+  return {
+    rounds: stats.rounds + 1,
+    wins: stats.wins + (outcome === 'win' ? 1 : 0),
+    losses: stats.losses + (outcome === 'loss' ? 1 : 0),
+    pushes: stats.pushes + (outcome === 'push' ? 1 : 0),
+    biggestWin: Math.max(stats.biggestWin, netChips),
+    netChips: stats.netChips + netChips,
+    currentStreak,
+    bestStreak: Math.max(stats.bestStreak, currentStreak),
+  };
 }
 
 export function isCrazyPlayable(card: Card, top: Card, activeSuit: Suit): boolean {

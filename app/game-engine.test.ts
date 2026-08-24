@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   blackjackNetChange,
+  DEFAULT_STATS,
   isCrazyPlayable,
   makeDeck,
   rouletteColor,
   roulettePayout,
+  recordRound,
   scoreHand,
   wheelRotationForResult,
   type Card,
@@ -54,5 +56,18 @@ describe('roulette', () => {
     const normalized = ((rotation % 360) + 360) % 360;
     const expected = (360 - 17 * (360 / 37)) % 360;
     expect(normalized).toBeCloseTo(expected, 8);
+  });
+});
+
+describe('player statistics', () => {
+  it('records wins, streaks, and chip totals', () => {
+    const first = recordRound(DEFAULT_STATS, 'win', 50);
+    const second = recordRound(first, 'win', 100);
+    expect(second).toMatchObject({ rounds: 2, wins: 2, biggestWin: 100, netChips: 150, currentStreak: 2, bestStreak: 2 });
+  });
+  it('resets the current streak after a loss', () => {
+    const win = recordRound(DEFAULT_STATS, 'win', 25);
+    const loss = recordRound(win, 'loss', -25);
+    expect(loss).toMatchObject({ rounds: 2, wins: 1, losses: 1, currentStreak: 0, bestStreak: 1, netChips: 0 });
   });
 });

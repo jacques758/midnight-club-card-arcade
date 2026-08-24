@@ -12,7 +12,9 @@ A polished, responsive browser arcade featuring Crazy 8, European roulette, and 
 - **Roulette:** Bet on a single number, red, black, odd, or even. The animated wheel lands on the generated result.
 - **Blackjack:** Choose a stake, then hit, stand, or double. The dealer stands on 17 and blackjack pays 3 to 2.
 
-Your virtual chip balance is saved on the current device. Active wagers are settled only when a round completes, so refreshing does not consume an unfinished wager.
+The arcade includes synthesized sound effects with mute and volume controls, animated game feedback, and persistent statistics for rounds, win rate, biggest win, and best streak.
+
+Game progress is saved automatically against an anonymous device identifier. Reopening the game restores the bankroll, preferences, statistics, card hands, roulette history, and any active round. No name, email address, or personal profile is collected.
 
 ## Run locally
 
@@ -40,7 +42,10 @@ Run all checks together with `npm run check`.
 - `app/arcade.tsx` coordinates the three game tables and their interface state.
 - `app/game-engine.ts` contains reusable rules, scoring, payouts, and wheel positioning.
 - `app/game-engine.test.ts` verifies the important game rules.
-- `app/balance-store.ts` manages the device-local chip balance.
+- `app/progress-sync.ts` saves and restores the current game snapshot.
+- `app/api/progress/route.ts` provides the durable progress API.
+- `db/schema.ts` and `drizzle/` define the saved-progress database and migration.
+- `app/sound.ts` provides lightweight synthesized game sounds without external media files.
 - `app/card-view.tsx` and `app/rules-modal.tsx` contain reusable accessible interface pieces.
 
 ## Fair-play note
