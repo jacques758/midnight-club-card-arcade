@@ -18,6 +18,8 @@ Players also earn XP and levels after every round. A customizable nickname and s
 
 Each table now includes a three-step guided tutorial. A twelve-round journal records recent outcomes and chip changes, while level rewards unlock selectable table themes. Roulette also supports high/low, dozens, and columns alongside its original number, color, and parity bets.
 
+The expanded **How to Play** rule books document setup, turn order, legal actions, payouts, edge cases, and the exact house variations used by every table.
+
 ## Visual experience
 
 - Each game has its own lighting, color palette, felt texture, and table atmosphere.

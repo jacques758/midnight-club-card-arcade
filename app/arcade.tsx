@@ -173,6 +173,7 @@ export default function Arcade() {
       const drawn = deck.pop();
       if (drawn) computer.push(drawn);
       if (drawn) playSound('card', muted, volume);
+      if (!drawn) setCrazyOver(true);
       setCrazyComputer(computer); setCrazyDeck(deck);
       setCrazyMessage(drawn ? 'The house drew a card. Your turn.' : 'The deck is empty — start a fresh round.');
       return;
