@@ -16,6 +16,8 @@ The arcade includes synthesized sound effects with mute and volume controls, ani
 
 Players also earn XP and levels after every round. A customizable nickname and suit avatar, six achievement badges, per-game win tracking, and a rotating daily challenge are saved automatically with the rest of the arcade progress.
 
+Each table now includes a three-step guided tutorial. A twelve-round journal records recent outcomes and chip changes, while level rewards unlock selectable table themes. Roulette also supports high/low, dozens, and columns alongside its original number, color, and parity bets.
+
 ## Visual experience
 
 - Each game has its own lighting, color palette, felt texture, and table atmosphere.
@@ -24,6 +26,7 @@ Players also earn XP and levels after every round. A customizable nickname and s
 - Immersive mode expands the active table to fill the screen and removes nonessential interface elements.
 - Mobile controls stay close to the bottom of the screen for comfortable one-handed play.
 - A progression hub shows the player level, daily objective, earned badges, and profile controls.
+- Four unlockable table themes change the felt, lighting, and card-back treatment.
 
 Game progress is saved automatically against an anonymous device identifier. Reopening the game restores the bankroll, preferences, statistics, card hands, roulette history, and any active round. No name, email address, or personal profile is collected.
 
@@ -55,6 +58,7 @@ Run all checks together with `npm run check`.
 - `app/game-engine.test.ts` verifies the important game rules.
 - `app/progress-sync.ts` saves and restores the current game snapshot.
 - `app/progression.ts` handles XP, levels, achievements, and daily challenges.
+- `app/tutorial-modal.tsx` provides the guided introduction for every table.
 - `app/api/progress/route.ts` provides the durable progress API.
 - `db/schema.ts` and `drizzle/` define the saved-progress database and migration.
 - `app/sound.ts` provides lightweight synthesized game sounds without external media files.

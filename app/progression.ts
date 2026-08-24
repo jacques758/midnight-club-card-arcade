@@ -2,6 +2,16 @@ import type { Game, PlayerStats, RoundOutcome } from './game-engine';
 
 export type AchievementId = 'first_win' | 'hot_streak' | 'club_regular' | 'high_roller' | 'triple_crown' | 'level_five';
 export type DailyChallengeKind = 'rounds' | 'wins' | 'game_win';
+export type TableTheme = 'classic' | 'velvet' | 'sapphire' | 'royal';
+
+export type GameHistoryEntry = {
+  id: string;
+  game: Game;
+  outcome: RoundOutcome;
+  netChips: number;
+  detail: string;
+  playedAt: string;
+};
 
 export type Achievement = {
   id: AchievementId;
@@ -28,9 +38,19 @@ export type ProgressionState = {
   gameWins: Record<Game, number>;
   unlocked: AchievementId[];
   daily: { date: string; progress: number; completed: boolean };
+  theme: TableTheme;
+  tutorialsSeen: Game[];
+  history: GameHistoryEntry[];
 };
 
 export const XP_PER_LEVEL = 250;
+
+export const TABLE_THEMES: { id: TableTheme; name: string; note: string; minLevel: number; swatch: string }[] = [
+  { id: 'classic', name: 'Midnight Classic', note: 'The original private-club look.', minLevel: 1, swatch: '#d5ad66' },
+  { id: 'velvet', name: 'Crimson Velvet', note: 'Warm red felt and rose-gold light.', minLevel: 2, swatch: '#c85d58' },
+  { id: 'sapphire', name: 'Blue Hour', note: 'Cool sapphire felt and silver cards.', minLevel: 3, swatch: '#629bc8' },
+  { id: 'royal', name: 'Royal Noir', note: 'Deep violet with a brighter gold edge.', minLevel: 4, swatch: '#9c76c9' },
+];
 
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_win', icon: '★', title: 'First Light', description: 'Win your first round.' },
@@ -66,6 +86,9 @@ export function createDefaultProgression(date = todayKey()): ProgressionState {
     gameWins: { crazy: 0, roulette: 0, blackjack: 0 },
     unlocked: [],
     daily: { date, progress: 0, completed: false },
+    theme: 'classic',
+    tutorialsSeen: [],
+    history: [],
   };
 }
 
@@ -79,6 +102,9 @@ export function normalizeProgression(value: Partial<ProgressionState> | null | u
     gameWins: { ...fallback.gameWins, ...value?.gameWins },
     unlocked: Array.isArray(value?.unlocked) ? value.unlocked.filter((id): id is AchievementId => ACHIEVEMENTS.some((item) => item.id === id)) : [],
     daily: sameDay ? { date, progress: Math.max(0, Number(value?.daily?.progress) || 0), completed: Boolean(value?.daily?.completed) } : fallback.daily,
+    theme: TABLE_THEMES.some((theme) => theme.id === value?.theme) ? value!.theme! : 'classic',
+    tutorialsSeen: Array.isArray(value?.tutorialsSeen) ? value.tutorialsSeen.filter((game): game is Game => ['crazy', 'roulette', 'blackjack'].includes(game)) : [],
+    history: Array.isArray(value?.history) ? value.history.slice(0, 12).filter((entry) => entry && ['crazy', 'roulette', 'blackjack'].includes(entry.game)) : [],
   };
 }
 
@@ -93,7 +119,7 @@ export function levelProgress(xp: number): { current: number; target: number; pe
 
 export function applyProgressionEvent(
   current: ProgressionState,
-  event: { game: Game; outcome: RoundOutcome },
+  event: { game: Game; outcome: RoundOutcome; netChips?: number; detail?: string; playedAt?: string },
   stats: PlayerStats,
   date = todayKey(),
 ) {
@@ -114,6 +140,14 @@ export function applyProgressionEvent(
     xp: state.xp + xpEarned,
     gameWins,
     daily: { date, progress: dailyProgress, completed: state.daily.completed || challengeCompleted },
+    history: [{
+      id: `${event.playedAt || Date.now()}-${stats.rounds}`,
+      game: event.game,
+      outcome: event.outcome,
+      netChips: event.netChips || 0,
+      detail: event.detail || `${event.outcome === 'win' ? 'Victory' : event.outcome === 'loss' ? 'House win' : 'Push'} at the table.`,
+      playedAt: event.playedAt || new Date().toISOString(),
+    }, ...state.history].slice(0, 12),
   };
   const earned = new Set<AchievementId>(candidate.unlocked);
   if (stats.wins >= 1) earned.add('first_win');

@@ -51,6 +51,13 @@ describe('roulette', () => {
   });
   it('pays 36 times the stake for a straight number', () => expect(roulettePayout('number-17', 25, 17)).toBe(900));
   it('pays two times the stake for outside bets', () => expect(roulettePayout('red', 25, 1)).toBe(50));
+  it('supports high, low, dozen, and column bets', () => {
+    expect(roulettePayout('low', 25, 18)).toBe(50);
+    expect(roulettePayout('high', 25, 19)).toBe(50);
+    expect(roulettePayout('dozen-2', 25, 17)).toBe(75);
+    expect(roulettePayout('column-3', 25, 36)).toBe(75);
+    expect(roulettePayout('column-1', 25, 36)).toBe(0);
+  });
   it('does not treat zero as even', () => expect(roulettePayout('even', 25, 0)).toBe(0));
   it('aligns the chosen result with the wheel pointer', () => {
     const rotation = wheelRotationForResult(125, 17);
@@ -96,6 +103,7 @@ describe('player progression', () => {
     const result = applyProgressionEvent(createDefaultProgression(date), { game: 'crazy', outcome: 'win' }, stats, date);
     expect(result.newlyUnlocked).toContain('first_win');
     expect(result.state.gameWins.crazy).toBe(1);
+    expect(result.state.history[0]).toMatchObject({ game: 'crazy', outcome: 'win', netChips: 0 });
   });
 
   it('resets an expired daily challenge while preserving lifetime progress', () => {
@@ -105,5 +113,10 @@ describe('player progression', () => {
 
   it('selects the same daily challenge for the same date', () => {
     expect(getDailyChallenge(date)).toEqual(getDailyChallenge(date));
+  });
+
+  it('preserves valid theme and tutorial rewards', () => {
+    const profile = { ...createDefaultProgression(date), theme: 'sapphire' as const, tutorialsSeen: ['crazy' as const] };
+    expect(normalizeProgression(profile, date)).toMatchObject({ theme: 'sapphire', tutorialsSeen: ['crazy'] });
   });
 });

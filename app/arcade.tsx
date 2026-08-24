@@ -29,16 +29,18 @@ import {
   levelFromXp,
   levelProgress,
   normalizeProgression,
+  TABLE_THEMES,
   todayKey,
   type ProgressionState,
 } from './progression';
 import RulesModal from './rules-modal';
 import { playSound } from './sound';
+import TutorialModal from './tutorial-modal';
 
 type BlackjackStatus = 'betting' | 'playing' | 'done';
 type RoulettePending = { result: number; choice: string; wager: number; finishAt: number };
 type ProgressSnapshot = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   activeGame: Game;
   balance: number;
   stats: PlayerStats;
@@ -54,6 +56,18 @@ const games: { id: Game; name: string; icon: string; note: string }[] = [
   { id: 'roulette', name: 'Roulette', icon: '●', note: 'Pick your lucky number' },
   { id: 'blackjack', name: 'Blackjack', icon: '21', note: 'Beat the house' },
 ];
+const rouletteOutsideBets = [
+  { id: 'red', label: 'RED', odds: '1:1' }, { id: 'black', label: 'BLACK', odds: '1:1' },
+  { id: 'odd', label: 'ODD', odds: '1:1' }, { id: 'even', label: 'EVEN', odds: '1:1' },
+  { id: 'low', label: '1–18', odds: '1:1' }, { id: 'high', label: '19–36', odds: '1:1' },
+  { id: 'dozen-1', label: '1ST 12', odds: '2:1' }, { id: 'dozen-2', label: '2ND 12', odds: '2:1' }, { id: 'dozen-3', label: '3RD 12', odds: '2:1' },
+  { id: 'column-1', label: 'COL 1', odds: '2:1' }, { id: 'column-2', label: 'COL 2', odds: '2:1' }, { id: 'column-3', label: 'COL 3', odds: '2:1' },
+];
+
+function rouletteBetLabel(choice: string) {
+  if (choice.startsWith('number-')) return `Number ${choice.slice(7)}`;
+  return rouletteOutsideBets.find((bet) => bet.id === choice)?.label || choice;
+}
 
 
 export default function Arcade() {
@@ -68,6 +82,7 @@ export default function Arcade() {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(0.65);
   const [showRules, setShowRules] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const celebrationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [immersive, setImmersive] = useState(false);
@@ -99,11 +114,11 @@ export default function Arcade() {
   const [bjMessage, setBjMessage] = useState('Set your bet and deal the cards.');
   const spinning = roulettePending !== null;
 
-  const registerResult = useCallback((outcome: RoundOutcome, netChips = 0) => {
+  const registerResult = useCallback((outcome: RoundOutcome, netChips = 0, detail?: string) => {
     const nextStats = recordRound(statsRef.current, outcome, netChips);
     statsRef.current = nextStats;
     setStats(nextStats);
-    const progress = applyProgressionEvent(progressionRef.current, { game: activeGame, outcome }, nextStats);
+    const progress = applyProgressionEvent(progressionRef.current, { game: activeGame, outcome, netChips, detail }, nextStats);
     progressionRef.current = progress.state;
     setProgression(progress.state);
     const unlocked = progress.newlyUnlocked.map((id) => ACHIEVEMENTS.find((item) => item.id === id)?.title).filter(Boolean);
@@ -166,7 +181,7 @@ export default function Arcade() {
     playSound('card', muted, volume);
     const nextSuit = played.rank === '8' ? randomSuit() : played.suit;
     setCrazyComputer(computer); setCrazyDeck(deck); setCrazyTop(played); setCrazySuit(nextSuit);
-    if (computer.length === 0) { setCrazyOver(true); setCrazyMessage('The house is out of cards. Better luck next hand.'); registerResult('loss'); }
+    if (computer.length === 0) { setCrazyOver(true); setCrazyMessage('The house is out of cards. Better luck next hand.'); registerResult('loss', 0, 'The house cleared its Crazy 8 hand first.'); }
     else setCrazyMessage(played.rank === '8' ? `The house played an 8 and called ${nextSuit}.` : `The house played ${played.rank}${played.suit}. Your turn.`);
     setCrazyPlayer(player);
   }
@@ -182,7 +197,7 @@ export default function Arcade() {
     const nextSuit = wildSuit || card.suit;
     playSound('card', muted, volume);
     setPendingEight(null); setCrazyPlayer(player); setCrazyTop(card); setCrazySuit(nextSuit);
-    if (player.length === 0) { setCrazyOver(true); setCrazyMessage('You cleared your hand — you win!'); registerResult('win'); return; }
+    if (player.length === 0) { setCrazyOver(true); setCrazyMessage('You cleared your hand — you win!'); registerResult('win', 0, 'You cleared every card in Crazy 8.'); return; }
     computerTurn(player, [...crazyDeck], card, nextSuit);
   }
 
@@ -224,7 +239,7 @@ export default function Arcade() {
       setRouletteHistory((history) => [result, ...history].slice(0, 6));
       setRouletteMessage(payout ? `${result} ${color.toUpperCase()} — you won ${net} chips!` : `${result} ${color.toUpperCase()} — the house wins.`);
       setRoulettePending(null);
-      registerResult(payout ? 'win' : 'loss', net);
+      registerResult(payout ? 'win' : 'loss', net, `${result} ${color.toUpperCase()} · ${rouletteBetLabel(choice)} bet.`);
     };
     timeoutRef.current = window.setTimeout(settle, Math.max(0, finishAt - Date.now()));
     return () => { if (timeoutRef.current) window.clearTimeout(timeoutRef.current); };
@@ -239,9 +254,9 @@ export default function Arcade() {
     const playerScore = scoreHand(player); const dealerScore = scoreHand(dealer);
     if (playerScore === 21 || dealerScore === 21) {
       setBjStatus('done');
-      if (playerScore === 21 && dealerScore === 21) { setBjMessage('Two blackjacks — push. Your bet is returned.'); registerResult('push'); }
-      else if (playerScore === 21) { const net = blackjackNetChange('blackjack', bjBet); setBalance((value) => value + net); setBjMessage('Natural blackjack! You win 3 to 2.'); registerResult('win', net); }
-      else { const net = blackjackNetChange('loss', bjBet); setBalance((value) => value + net); setBjMessage('Dealer blackjack. The house takes the hand.'); registerResult('loss', net); }
+      if (playerScore === 21 && dealerScore === 21) { setBjMessage('Two blackjacks — push. Your bet is returned.'); registerResult('push', 0, 'Both you and the dealer had blackjack.'); }
+      else if (playerScore === 21) { const net = blackjackNetChange('blackjack', bjBet); setBalance((value) => value + net); setBjMessage('Natural blackjack! You win 3 to 2.'); registerResult('win', net, `Natural blackjack · +${net} chips.`); }
+      else { const net = blackjackNetChange('loss', bjBet); setBalance((value) => value + net); setBjMessage('Dealer blackjack. The house takes the hand.'); registerResult('loss', net, `Dealer blackjack · ${net} chips.`); }
     } else { setBjStatus('playing'); setBjMessage('Hit, stand, or double down.'); }
   }
 
@@ -250,9 +265,9 @@ export default function Arcade() {
     while (scoreHand(dealer) < 17 && deck.length) dealer.push(deck.pop()!);
     const playerScore = scoreHand(player); const dealerScore = scoreHand(dealer);
     setBjDealer(dealer); setBjDeck(deck); setBjStatus('done');
-    if (dealerScore > 21 || playerScore > dealerScore) { const net = blackjackNetChange('win', wager); setBalance((value) => value + net); setBjMessage(dealerScore > 21 ? `Dealer busts with ${dealerScore} — you win!` : `${playerScore} beats ${dealerScore} — you win!`); registerResult('win', net); }
-    else if (playerScore === dealerScore) { setBjMessage(`${playerScore} to ${dealerScore} — push. Your bet is returned.`); registerResult('push'); }
-    else { const net = blackjackNetChange('loss', wager); setBalance((value) => value + net); setBjMessage(`Dealer wins ${dealerScore} to ${playerScore}.`); registerResult('loss', net); }
+    if (dealerScore > 21 || playerScore > dealerScore) { const net = blackjackNetChange('win', wager); setBalance((value) => value + net); setBjMessage(dealerScore > 21 ? `Dealer busts with ${dealerScore} — you win!` : `${playerScore} beats ${dealerScore} — you win!`); registerResult('win', net, dealerScore > 21 ? `Dealer bust ${dealerScore} · your ${playerScore}.` : `Your ${playerScore} beat dealer ${dealerScore}.`); }
+    else if (playerScore === dealerScore) { setBjMessage(`${playerScore} to ${dealerScore} — push. Your bet is returned.`); registerResult('push', 0, `Push at ${playerScore}.`); }
+    else { const net = blackjackNetChange('loss', wager); setBalance((value) => value + net); setBjMessage(`Dealer wins ${dealerScore} to ${playerScore}.`); registerResult('loss', net, `Dealer ${dealerScore} beat your ${playerScore}.`); }
   }
 
   function hitBlackjack() {
@@ -261,7 +276,7 @@ export default function Arcade() {
     const player = [...bjPlayer, card]; setBjPlayer(player); setBjDeck(deck);
     playSound('card', muted, volume);
     const score = scoreHand(player);
-    if (score > 21) { const net = blackjackNetChange('loss', bjRoundBet); setBalance((value) => value + net); setBjStatus('done'); setBjMessage(`${score} — bust. The house wins.`); registerResult('loss', net); }
+    if (score > 21) { const net = blackjackNetChange('loss', bjRoundBet); setBalance((value) => value + net); setBjStatus('done'); setBjMessage(`${score} — bust. The house wins.`); registerResult('loss', net, `You busted with ${score}.`); }
     else if (score === 21) setBjMessage('Twenty-one. Stand to reveal the dealer.');
     else setBjMessage(`${score}. Hit again or stand.`);
   }
@@ -272,7 +287,7 @@ export default function Arcade() {
     playSound('chip', muted, volume);
     const wager = bjRoundBet * 2; setBjRoundBet(wager);
     const deck = [...bjDeck]; const player = [...bjPlayer, deck.pop()!]; setBjPlayer(player); setBjDeck(deck);
-    if (scoreHand(player) > 21) { const net = blackjackNetChange('loss', wager); setBalance((value) => value + net); setBjStatus('done'); setBjMessage(`${scoreHand(player)} — bust on the double.`); registerResult('loss', net); }
+    if (scoreHand(player) > 21) { const net = blackjackNetChange('loss', wager); setBalance((value) => value + net); setBjStatus('done'); setBjMessage(`${scoreHand(player)} — bust on the double.`); registerResult('loss', net, `Double-down bust at ${scoreHand(player)}.`); }
     else resolveBlackjack(player, bjDealer, deck, wager);
   }
 
@@ -284,7 +299,7 @@ export default function Arcade() {
   const availableBalance = Math.max(0, balance - reservedChips);
   const closeRules = useCallback(() => setShowRules(false), []);
   const restoreProgress = useCallback((progress: ProgressSnapshot) => {
-    if (!progress || (progress.version !== 1 && progress.version !== 2)) return;
+    if (!progress || ![1, 2, 3].includes(progress.version)) return;
     setActiveGame(progress.activeGame);
     setBalance(Number.isFinite(progress.balance) ? Math.max(0, progress.balance) : 1000);
     const restoredStats = { ...DEFAULT_STATS, ...progress.stats };
@@ -312,7 +327,7 @@ export default function Arcade() {
     }
   }, []);
   const progressSnapshot = useMemo<ProgressSnapshot>(() => ({
-    version: 2,
+    version: 3,
     activeGame,
     balance,
     stats,
@@ -328,14 +343,14 @@ export default function Arcade() {
   const playerLevel = levelFromXp(progression.xp);
   const xpProgress = levelProgress(progression.xp);
 
-  function updateProfile(update: Partial<Pick<ProgressionState, 'nickname' | 'avatar'>>) {
+  function updateProfile(update: Partial<Pick<ProgressionState, 'nickname' | 'avatar' | 'theme' | 'tutorialsSeen'>>) {
     const next = { ...progressionRef.current, ...update };
     progressionRef.current = next;
     setProgression(next);
   }
 
   return (
-    <main className={`arcade-shell game-first game-${activeGame} ${immersive ? 'immersive' : ''} ${celebration ? `celebrate-${celebration}` : ''}`}>
+    <main className={`arcade-shell game-first game-${activeGame} theme-${progression.theme} ${immersive ? 'immersive' : ''} ${celebration ? `celebrate-${celebration}` : ''}`}>
       <div className="ambient-orbs" aria-hidden="true"><span/><span/><span/></div>
       {celebration === 'win' && <div className="celebration-layer" aria-hidden="true">{Array.from({length:18},(_,index)=><span key={index} style={{'--particle':index} as CSSProperties}>{index % 3 === 0 ? '◆' : index % 3 === 1 ? '●' : '✦'}</span>)}</div>}
       <header className="topbar" id="top">
@@ -363,6 +378,8 @@ export default function Arcade() {
         <div className="profile-editor"><p className="eyebrow">PLAYER PROFILE</p><label>Nickname<input value={progression.nickname} maxLength={18} onChange={(event) => updateProfile({ nickname: event.target.value.slice(0, 18) })}/></label><div className="avatar-picker" aria-label="Choose a suit avatar">{['♠','♥','♦','♣'].map((avatar) => <button type="button" key={avatar} className={progression.avatar === avatar ? 'active' : ''} onClick={() => updateProfile({ avatar })} aria-pressed={progression.avatar === avatar}>{avatar}</button>)}</div></div>
         <article className={`daily-card ${progression.daily.completed ? 'complete' : ''}`}><span>{dailyChallenge.icon}</span><div><small>TODAY · +{dailyChallenge.reward} XP</small><h2>{dailyChallenge.title}</h2><p>{dailyChallenge.description}</p><div className="challenge-track"><span style={{width:`${Math.min(100,(progression.daily.progress / dailyChallenge.target) * 100)}%`}}/></div><strong>{progression.daily.completed ? 'REWARD EARNED' : `${progression.daily.progress} OF ${dailyChallenge.target}`}</strong></div></article>
         <div className="achievement-grid">{ACHIEVEMENTS.map((achievement) => { const earned = progression.unlocked.includes(achievement.id); return <article key={achievement.id} className={earned ? 'earned' : 'locked'}><span>{achievement.icon}</span><div><small>{earned ? 'UNLOCKED' : 'LOCKED'}</small><h3>{achievement.title}</h3><p>{achievement.description}</p></div></article>; })}</div>
+        <div className="reward-section"><div className="progression-section-title"><div><p className="eyebrow">TABLE COLLECTION</p><h2>Unlocked themes</h2></div><small>LEVEL REWARDS</small></div><div className="theme-grid">{TABLE_THEMES.map((theme) => { const unlocked = playerLevel >= theme.minLevel; return <button type="button" key={theme.id} className={`${progression.theme === theme.id ? 'selected' : ''} ${unlocked ? '' : 'locked'}`} disabled={!unlocked} onClick={() => updateProfile({ theme: theme.id })}><span style={{background:theme.swatch}}/><strong>{theme.name}</strong><small>{unlocked ? theme.note : `UNLOCKS AT LEVEL ${theme.minLevel}`}</small></button>; })}</div></div>
+        <div className="history-section"><div className="progression-section-title"><div><p className="eyebrow">GAME JOURNAL</p><h2>Recent rounds</h2></div><small>LAST {Math.min(12, progression.history.length)}</small></div>{progression.history.length ? <div className="game-history">{progression.history.map((entry) => <article key={entry.id} className={entry.outcome}><span>{games.find((game) => game.id === entry.game)?.icon}</span><div><strong>{games.find((game) => game.id === entry.game)?.name}</strong><p>{entry.detail}</p></div><div><b>{entry.netChips > 0 ? `+${entry.netChips}` : entry.netChips || '—'}</b><small>{entry.playedAt.slice(11,16)} UTC</small></div></article>)}</div> : <div className="empty-history"><span>◇</span><p>Complete a round and it will appear here.</p></div>}</div>
       </section>}
 
       {progressionNotice && <div className="progression-toast" role="status"><span>✦</span>{progressionNotice}</div>}
@@ -382,7 +399,7 @@ export default function Arcade() {
 
       <section className="table-wrap" aria-label={`${activeName} table`}>
         <div className="table-ambience" aria-hidden="true"><span/><span/><span/><span/></div>
-        <div className="table-topline"><div><span className="live-dot"/> {activeName.toUpperCase()} · TABLE 0{games.findIndex((g) => g.id === activeGame) + 1}</div><button className="rules-button" onClick={() => setShowRules(true)}>ⓘ &nbsp; HOW TO PLAY</button></div>
+        <div className="table-topline"><div><span className="live-dot"/> {activeName.toUpperCase()} · TABLE 0{games.findIndex((g) => g.id === activeGame) + 1}</div><div className="table-help"><button className="tutorial-button" onClick={() => setShowTutorial(true)}>{progression.tutorialsSeen.includes(activeGame) ? '◇ QUICK TOUR' : 'NEW · QUICK TOUR'}</button><button className="rules-button" onClick={() => setShowRules(true)}>ⓘ &nbsp; HOW TO PLAY</button></div></div>
 
         {activeGame === 'crazy' && <>
           <div className="crazy-table">
@@ -397,7 +414,7 @@ export default function Arcade() {
         {activeGame === 'roulette' && <>
           <div className="roulette-table">
             <div className="wheel-stage"><div className={`roulette-wheel ${spinning ? 'spinning' : ''} ${rouletteResult !== null ? 'result-hit' : ''}`} style={{'--wheel-spin': `${wheelTurn}deg`} as CSSProperties}><div className="wheel-ring" aria-hidden="true"/><div className="wheel-numbers" aria-hidden="true">{Array.from({length:37},(_,number)=><span key={number} style={{'--slot-angle':`${number * (360 / 37)}deg`} as CSSProperties}>{number}</span>)}</div><div className="wheel-center"><small>RESULT</small><b>{rouletteResult ?? '—'}</b></div></div><div className={`ball-orbit ${spinning ? 'ball-spinning' : ''}`} aria-hidden="true"><span/></div><div className="wheel-pointer" aria-hidden="true">◆</div><div className="history-row" aria-label="Recent roulette results">{rouletteHistory.length ? rouletteHistory.map((number, i) => <span key={`${number}-${i}`} className={rouletteColor(number)}>{number}</span>) : <small>RECENT SPINS APPEAR HERE</small>}</div></div>
-            <div className="betting-board"><div key={`${rouletteChoice}-${rouletteBet}`} className="placed-chip roulette-placed-chip" aria-hidden="true"><span>{rouletteBet}</span><small>{rouletteChoice.replace('number-','N° ')}</small></div><div className="number-grid"><button type="button" className={`number-cell zero ${rouletteChoice === 'number-0' ? 'selected' : ''}`} onClick={() => chooseRoulette('number-0')} disabled={spinning} aria-pressed={rouletteChoice === 'number-0'}>0</button>{Array.from({length:36},(_,i)=>i+1).map((number)=><button type="button" key={number} className={`number-cell ${rouletteColor(number)} ${rouletteChoice === `number-${number}` ? 'selected' : ''}`} onClick={()=>chooseRoulette(`number-${number}`)} disabled={spinning} aria-pressed={rouletteChoice === `number-${number}`}>{number}</button>)}</div><div className="outside-bets">{['red','black','odd','even'].map((bet)=><button type="button" key={bet} className={`${bet} ${rouletteChoice===bet?'selected':''}`} onClick={()=>chooseRoulette(bet)} disabled={spinning} aria-pressed={rouletteChoice===bet}>{bet.toUpperCase()}</button>)}</div><p className="bet-note">Selected: <b>{rouletteChoice.replace('number-','Number ')}</b></p></div>
+            <div className="betting-board"><div key={`${rouletteChoice}-${rouletteBet}`} className="placed-chip roulette-placed-chip" aria-hidden="true"><span>{rouletteBet}</span><small>{rouletteBetLabel(rouletteChoice)}</small></div><div className="number-grid"><button type="button" className={`number-cell zero ${rouletteChoice === 'number-0' ? 'selected' : ''}`} onClick={() => chooseRoulette('number-0')} disabled={spinning} aria-pressed={rouletteChoice === 'number-0'}>0</button>{Array.from({length:36},(_,i)=>i+1).map((number)=><button type="button" key={number} className={`number-cell ${rouletteColor(number)} ${rouletteChoice === `number-${number}` ? 'selected' : ''}`} onClick={()=>chooseRoulette(`number-${number}`)} disabled={spinning} aria-pressed={rouletteChoice === `number-${number}`}>{number}</button>)}</div><div className="outside-bets expanded">{rouletteOutsideBets.map((bet)=><button type="button" key={bet.id} className={`${bet.id} ${rouletteChoice===bet.id?'selected':''}`} onClick={()=>chooseRoulette(bet.id)} disabled={spinning} aria-pressed={rouletteChoice===bet.id}><span>{bet.label}</span><small>{bet.odds}</small></button>)}</div><p className="bet-note">Selected: <b>{rouletteBetLabel(rouletteChoice)}</b></p></div>
           </div>
           <div className="action-dock roulette-dock"><div className="chip-row">{[10,25,50,100].map((chip)=><button key={chip} className={`chip ${rouletteBet===chip?'active':''}`} onClick={()=>{setRouletteBet(chip);playSound('chip',muted,volume);}} disabled={spinning}>{chip}</button>)}</div><p key={rouletteMessage} className="game-status status-pop" aria-live="polite">{rouletteMessage}</p><button className="primary-action spin-button" onClick={spinRoulette} disabled={spinning}>{spinning?'SPINNING…':`SPIN · ${rouletteBet}`}</button></div>
         </>}
@@ -420,6 +437,14 @@ export default function Arcade() {
       <footer><span>PLAY FOR FUN · NO REAL MONEY</span><span>♣ &nbsp; FAIR SHUFFLE &nbsp; ♦</span></footer>
 
       {showRules && <RulesModal game={activeGame} onClose={closeRules} />}
+      {showTutorial && <TutorialModal
+        game={activeGame}
+        onClose={() => setShowTutorial(false)}
+        onComplete={() => {
+          updateProfile({ tutorialsSeen: [...new Set([...progressionRef.current.tutorialsSeen, activeGame])] });
+          setShowTutorial(false);
+        }}
+      />}
     </main>
   );
 }

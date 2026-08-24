@@ -80,10 +80,14 @@ export function rouletteColor(number: number): 'green' | 'red' | 'black' {
 export function roulettePayout(choice: string, wager: number, result: number): number {
   const color = rouletteColor(result);
   const straight = choice.startsWith('number-') && Number(choice.slice(7)) === result;
+  const dozen = choice.startsWith('dozen-') && result > 0 && Math.ceil(result / 12) === Number(choice.slice(6));
+  const column = choice.startsWith('column-') && result > 0 && ((result - 1) % 3) + 1 === Number(choice.slice(7));
   const outside = choice === color
     || (choice === 'odd' && result > 0 && result % 2 === 1)
-    || (choice === 'even' && result > 0 && result % 2 === 0);
-  return straight ? wager * 36 : outside ? wager * 2 : 0;
+    || (choice === 'even' && result > 0 && result % 2 === 0)
+    || (choice === 'low' && result >= 1 && result <= 18)
+    || (choice === 'high' && result >= 19 && result <= 36);
+  return straight ? wager * 36 : dozen || column ? wager * 3 : outside ? wager * 2 : 0;
 }
 
 export function wheelRotationForResult(currentTurn: number, result: number, fullSpins = 4): number {
