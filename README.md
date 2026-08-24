@@ -14,6 +14,14 @@ A polished, responsive browser arcade featuring Crazy 8, European roulette, and 
 
 The arcade includes synthesized sound effects with mute and volume controls, animated game feedback, and persistent statistics for rounds, win rate, biggest win, and best streak.
 
+## Visual experience
+
+- Each game has its own lighting, color palette, felt texture, and table atmosphere.
+- Cards deal into the table, chips land on bets, and the roulette ball travels around the wheel.
+- Wins trigger celebratory particles, while pushes and losses receive distinct visual feedback.
+- Immersive mode expands the active table to fill the screen and removes nonessential interface elements.
+- Mobile controls stay close to the bottom of the screen for comfortable one-handed play.
+
 Game progress is saved automatically against an anonymous device identifier. Reopening the game restores the bankroll, preferences, statistics, card hands, roulette history, and any active round. No name, email address, or personal profile is collected.
 
 ## Run locally

@@ -52,6 +52,9 @@ export default function Arcade() {
   const [volume, setVolume] = useState(0.65);
   const [showRules, setShowRules] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const celebrationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [immersive, setImmersive] = useState(false);
+  const [celebration, setCelebration] = useState<RoundOutcome | null>(null);
 
   const [crazyDeck, setCrazyDeck] = useState<Card[]>([]);
   const [crazyPlayer, setCrazyPlayer] = useState<Card[]>([]);
@@ -81,6 +84,9 @@ export default function Arcade() {
 
   const registerResult = useCallback((outcome: RoundOutcome, netChips = 0) => {
     setStats((current) => recordRound(current, outcome, netChips));
+    setCelebration(outcome);
+    if (celebrationTimeoutRef.current) window.clearTimeout(celebrationTimeoutRef.current);
+    celebrationTimeoutRef.current = window.setTimeout(() => setCelebration(null), 1800);
     playSound(outcome === 'win' ? 'win' : outcome === 'loss' ? 'loss' : 'push', muted, volume);
   }, [muted, volume]);
 
@@ -100,8 +106,25 @@ export default function Arcade() {
     return () => {
       window.clearTimeout(setup);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
     };
   }, [beginCrazy]);
+
+  useEffect(() => {
+    const syncFullscreen = () => setImmersive(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  async function toggleImmersive() {
+    if (!immersive) {
+      setImmersive(true);
+      try { await document.documentElement.requestFullscreen?.(); } catch { /* CSS immersive mode remains available. */ }
+    } else {
+      setImmersive(false);
+      if (document.fullscreenElement) await document.exitFullscreen();
+    }
+  }
 
   function computerTurn(player: Card[], deck: Card[], top: Card, suit: Suit) {
     const computer = [...crazyComputer];
@@ -272,16 +295,19 @@ export default function Arcade() {
   const { status: progressStatus } = useProgressSync({ snapshot: progressSnapshot, restore: restoreProgress });
 
   return (
-    <main className="arcade-shell">
+    <main className={`arcade-shell game-first game-${activeGame} ${immersive ? 'immersive' : ''} ${celebration ? `celebrate-${celebration}` : ''}`}>
+      <div className="ambient-orbs" aria-hidden="true"><span/><span/><span/></div>
+      {celebration === 'win' && <div className="celebration-layer" aria-hidden="true">{Array.from({length:18},(_,index)=><span key={index} style={{'--particle':index} as CSSProperties}>{index % 3 === 0 ? '◆' : index % 3 === 1 ? '●' : '✦'}</span>)}</div>}
       <header className="topbar" id="top">
         <a className="brand" href="#top" aria-label="Midnight Club home"><span className="brand-mark">M</span><span>MIDNIGHT <b>CLUB</b></span></a>
-        <button type="button" className="balance-pill" onClick={() => { setBalance(1000); playSound('chip', muted, volume); }} disabled={hasActiveWager} aria-label={hasActiveWager ? `${availableBalance} chips available; reset disabled during a hand` : `${availableBalance} chips available; reset to one thousand`} title={hasActiveWager ? 'Finish the current wager before resetting chips' : 'Reset chips to 1,000'}><span>◎</span><small>AVAILABLE CHIPS · TAP TO RESET</small><strong>{availableBalance.toLocaleString()}</strong></button>
+        <div className="header-actions"><button type="button" className="immersive-toggle" onClick={toggleImmersive} aria-pressed={immersive}><span aria-hidden="true">{immersive ? '↙' : '↗'}</span>{immersive ? 'EXIT TABLE' : 'IMMERSIVE'}</button><button type="button" className="balance-pill" onClick={() => { setBalance(1000); playSound('chip', muted, volume); }} disabled={hasActiveWager} aria-label={hasActiveWager ? `${availableBalance} chips available; reset disabled during a hand` : `${availableBalance} chips available; reset to one thousand`} title={hasActiveWager ? 'Finish the current wager before resetting chips' : 'Reset chips to 1,000'}><span>◎</span><small>AVAILABLE CHIPS · TAP TO RESET</small><strong>{availableBalance.toLocaleString()}</strong></button></div>
       </header>
 
-      <section className="intro">
+      <section className="intro compact-intro">
         <p className="eyebrow">THE HOUSE IS OPEN</p>
-        <h1>Three tables.<br/><em>One lucky night.</em></h1>
-        <p>Classic card-room games, reimagined for your screen. No sign-up, no real money—just shuffle, spin, and play.</p>
+        <h1>Your table <em>awaits.</em></h1>
+        <p>Choose a classic, take your seat, and let the night unfold.</p>
+        <div className="hero-suits" aria-hidden="true"><span>♣</span><span>♦</span><span>♥</span><span>♠</span></div>
       </section>
 
       <section className="stats-strip" aria-label="Player statistics and sound settings">
@@ -298,12 +324,13 @@ export default function Arcade() {
       </nav>
 
       <section className="table-wrap" aria-label={`${activeName} table`}>
+        <div className="table-ambience" aria-hidden="true"><span/><span/><span/><span/></div>
         <div className="table-topline"><div><span className="live-dot"/> {activeName.toUpperCase()} · TABLE 0{games.findIndex((g) => g.id === activeGame) + 1}</div><button className="rules-button" onClick={() => setShowRules(true)}>ⓘ &nbsp; HOW TO PLAY</button></div>
 
         {activeGame === 'crazy' && <>
           <div className="crazy-table">
             <div className="opponent-zone"><p>THE HOUSE <b>{crazyComputer.length}</b></p><div className="computer-hand">{crazyComputer.map((_, index) => <CardView key={index} card={{rank:'A',suit:'♠'}} hidden small />)}</div></div>
-            <div className="crazy-center"><div className="draw-stack" aria-label="Draw pile"><span>M</span></div>{crazyTop && <CardView card={crazyTop} />}{crazyTop && <div className="called-suit">ACTIVE SUIT <b>{crazySuit}</b></div>}</div>
+            <div className="crazy-center"><div className="draw-stack" aria-label="Draw pile"><span>M</span></div>{crazyTop && <CardView key={`${crazyTop.rank}${crazyTop.suit}`} card={crazyTop} />}{crazyTop && <div className="called-suit">ACTIVE SUIT <b>{crazySuit}</b></div>}</div>
             <div className="player-zone"><p>YOUR HAND <b>{crazyPlayer.length}</b></p><div className="crazy-hand">{crazyPlayer.map((card, index) => <CardView key={`${card.rank}${card.suit}`} card={card} onClick={() => playCrazy(index)} disabled={crazyOver} />)}</div></div>
           </div>
           {pendingEight !== null && <div className="suit-picker"><span>CALL A SUIT</span>{SUITS.map((suit) => <button key={suit} className={suit === '♥' || suit === '♦' ? 'red-suit' : ''} onClick={() => playCrazy(pendingEight, suit)}>{suit}</button>)}</div>}
@@ -312,8 +339,8 @@ export default function Arcade() {
 
         {activeGame === 'roulette' && <>
           <div className="roulette-table">
-            <div className="wheel-stage"><div className={`roulette-wheel ${spinning ? 'spinning' : ''} ${rouletteResult !== null ? 'result-hit' : ''}`} style={{'--wheel-spin': `${wheelTurn}deg`} as CSSProperties}><div className="wheel-ring" aria-hidden="true"/><div className="wheel-numbers" aria-hidden="true">{Array.from({length:37},(_,number)=><span key={number} style={{'--slot-angle':`${number * (360 / 37)}deg`} as CSSProperties}>{number}</span>)}</div><div className="wheel-center"><small>RESULT</small><b>{rouletteResult ?? '—'}</b></div></div><div className="wheel-pointer" aria-hidden="true">◆</div><div className="history-row" aria-label="Recent roulette results">{rouletteHistory.length ? rouletteHistory.map((number, i) => <span key={`${number}-${i}`} className={rouletteColor(number)}>{number}</span>) : <small>RECENT SPINS APPEAR HERE</small>}</div></div>
-            <div className="betting-board"><div className="number-grid"><button type="button" className={`number-cell zero ${rouletteChoice === 'number-0' ? 'selected' : ''}`} onClick={() => chooseRoulette('number-0')} disabled={spinning} aria-pressed={rouletteChoice === 'number-0'}>0</button>{Array.from({length:36},(_,i)=>i+1).map((number)=><button type="button" key={number} className={`number-cell ${rouletteColor(number)} ${rouletteChoice === `number-${number}` ? 'selected' : ''}`} onClick={()=>chooseRoulette(`number-${number}`)} disabled={spinning} aria-pressed={rouletteChoice === `number-${number}`}>{number}</button>)}</div><div className="outside-bets">{['red','black','odd','even'].map((bet)=><button type="button" key={bet} className={`${bet} ${rouletteChoice===bet?'selected':''}`} onClick={()=>chooseRoulette(bet)} disabled={spinning} aria-pressed={rouletteChoice===bet}>{bet.toUpperCase()}</button>)}</div><p className="bet-note">Selected: <b>{rouletteChoice.replace('number-','Number ')}</b></p></div>
+            <div className="wheel-stage"><div className={`roulette-wheel ${spinning ? 'spinning' : ''} ${rouletteResult !== null ? 'result-hit' : ''}`} style={{'--wheel-spin': `${wheelTurn}deg`} as CSSProperties}><div className="wheel-ring" aria-hidden="true"/><div className="wheel-numbers" aria-hidden="true">{Array.from({length:37},(_,number)=><span key={number} style={{'--slot-angle':`${number * (360 / 37)}deg`} as CSSProperties}>{number}</span>)}</div><div className="wheel-center"><small>RESULT</small><b>{rouletteResult ?? '—'}</b></div></div><div className={`ball-orbit ${spinning ? 'ball-spinning' : ''}`} aria-hidden="true"><span/></div><div className="wheel-pointer" aria-hidden="true">◆</div><div className="history-row" aria-label="Recent roulette results">{rouletteHistory.length ? rouletteHistory.map((number, i) => <span key={`${number}-${i}`} className={rouletteColor(number)}>{number}</span>) : <small>RECENT SPINS APPEAR HERE</small>}</div></div>
+            <div className="betting-board"><div key={`${rouletteChoice}-${rouletteBet}`} className="placed-chip roulette-placed-chip" aria-hidden="true"><span>{rouletteBet}</span><small>{rouletteChoice.replace('number-','N° ')}</small></div><div className="number-grid"><button type="button" className={`number-cell zero ${rouletteChoice === 'number-0' ? 'selected' : ''}`} onClick={() => chooseRoulette('number-0')} disabled={spinning} aria-pressed={rouletteChoice === 'number-0'}>0</button>{Array.from({length:36},(_,i)=>i+1).map((number)=><button type="button" key={number} className={`number-cell ${rouletteColor(number)} ${rouletteChoice === `number-${number}` ? 'selected' : ''}`} onClick={()=>chooseRoulette(`number-${number}`)} disabled={spinning} aria-pressed={rouletteChoice === `number-${number}`}>{number}</button>)}</div><div className="outside-bets">{['red','black','odd','even'].map((bet)=><button type="button" key={bet} className={`${bet} ${rouletteChoice===bet?'selected':''}`} onClick={()=>chooseRoulette(bet)} disabled={spinning} aria-pressed={rouletteChoice===bet}>{bet.toUpperCase()}</button>)}</div><p className="bet-note">Selected: <b>{rouletteChoice.replace('number-','Number ')}</b></p></div>
           </div>
           <div className="action-dock roulette-dock"><div className="chip-row">{[10,25,50,100].map((chip)=><button key={chip} className={`chip ${rouletteBet===chip?'active':''}`} onClick={()=>{setRouletteBet(chip);playSound('chip',muted,volume);}} disabled={spinning}>{chip}</button>)}</div><p key={rouletteMessage} className="game-status status-pop" aria-live="polite">{rouletteMessage}</p><button className="primary-action spin-button" onClick={spinRoulette} disabled={spinning}>{spinning?'SPINNING…':`SPIN · ${rouletteBet}`}</button></div>
         </>}
@@ -322,6 +349,7 @@ export default function Arcade() {
           <div className="blackjack-table">
             <div className="dealer-side"><p>DEALER <b>{bjDealer.length ? (bjStatus === 'playing' ? scoreHand(bjDealer.slice(0,1)) : scoreHand(bjDealer)) : '—'}</b></p><div className="hand">{bjDealer.length ? bjDealer.map((card,index)=><CardView key={`${card.rank}${card.suit}-${index}`} card={card} hidden={index===1 && bjStatus==='playing'} />) : <div className="empty-hand">DEALER</div>}</div></div>
             <div className="table-message"><span>BLACKJACK PAYS 3 TO 2</span><b>21</b><small>Dealer stands on 17</small></div>
+            {bjPlayer.length > 0 && <div key={bjRoundBet} className="placed-chip blackjack-placed-chip" aria-label={`${bjRoundBet} chips wagered`}><span>{bjRoundBet}</span><small>BET</small></div>}
             <div className="player-side"><div className="hand">{bjPlayer.length ? bjPlayer.map((card,index)=><CardView key={`${card.rank}${card.suit}-${index}`} card={card} />) : <div className="deck-ready"><span>M</span></div>}</div><p>YOUR HAND <b>{bjPlayer.length ? scoreHand(bjPlayer) : '—'}</b></p></div>
           </div>
           <div className="action-dock blackjack-dock">
